@@ -1,0 +1,57 @@
+## Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+artifacts/
+publish/
+publish-aot/
+
+## .NET
+project.lock.json
+project.fragment.lock.json
+*.nuget.props
+*.nuget.targets
+*.cache
+*.dll.config
+
+## Visual Studio / VS Code
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## JetBrains Rider
+.idea/
+*.sln.iml
+
+## Test / coverage
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+TestResults/
+
+## OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
