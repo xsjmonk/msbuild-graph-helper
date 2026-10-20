@@ -1,8 +1,120 @@
 # MSBuildGraphHelper
 
-Small .NET 8 console tool that evaluates a Visual Studio solution with **Microsoft.Build.Graph.ProjectGraph**, computes the **transitive prerequisite closure** for one selected project, and returns **build order** as JSON.
+Small .NET 8 console tool that **evaluates** a Visual Studio solution with **Microsoft.Build.Graph.ProjectGraph** and returns JSON. It **does not compile** anything.
 
-Typical uses: drive custom build scripts, inspect what must compile before a target, or export a dependency graph for analysis. The tool **does not compile** anything; it only evaluates MSBuild and emits JSON.
+For every relevant project it reports:
+
+- **`ProjectPath`** — full path to the `.csproj` or `.vcxproj`
+- **`SourceFilePaths`** — full physical paths of evaluated source inputs (same information as MSBuild **`-getItem:Compile`** / **`ClCompile`** / **`ClInclude`**)
+
+Typical uses: dependency-aware builds, **which project owns this `.cs` file?**, and exporting a solution’s project/file map for tooling.
+
+## Modes
+
+| `--mode` | Default | `--project` | Output |
+|----------|---------|-------------|--------|
+| **`source-files`** | | Optional | **`SolutionSourceFilesDto`**: every (or one) buildable project with **`ProjectPath`** + **`SourceFilePaths`** |
+| **`closure`** | Yes | **Required** | **`SolutionGraphDto`**: dependency closure, **`BuildOrder`**, plus **`SourceFilePaths`** on each node |
+
+Shared arguments for both modes:
+
+| Argument | Required | Purpose |
+|----------|----------|---------|
+| `--solution` | Yes | Path to the `.sln` |
+| `--msbuild` | Yes | Visual Studio `MSBuild.exe` (prefer amd64 on 64-bit Windows) |
+| `--vctargets` | Yes | VC targets folder with `Microsoft.Cpp.Default.props` when the solution has C++ |
+| `--configuration` | No | `Debug` (default) or `Release` |
+| `--platform` | No | `x64` (default) |
+| `--output` | No | UTF-8 JSON file; otherwise **stdout** |
+
+Evaluation uses **ProjectGraph** (`Configuration`, `Platform`, `VCTargetsPath`, `SolutionDir`). Source paths are read from the evaluated project instance (same data as MSBuild **`-getItem:Compile`** / **`ClCompile`** / **`ClInclude`**).
+
+---
+
+## Standalone: `--mode source-files`
+
+Use this when you only need **which project owns which files** — no dependency closure or build order.
+
+### Whole solution
+
+Omit **`--project`**. JSON lists **every** buildable `.csproj` / `.vcxproj` in the solution.
+
+```powershell
+.\MSBuildGraphHelper.exe `
+  --mode source-files `
+  --solution C:\path\MySolution.sln `
+  --msbuild $msbuild `
+  --vctargets $vc `
+  --output C:\temp\solution-files.json
+```
+
+### Single project
+
+Pass **`--project`** with the **solution display name** (Solution Explorer name, not necessarily the `.csproj` file name).
+
+```powershell
+.\MSBuildGraphHelper.exe `
+  --mode source-files `
+  --solution C:\path\Stingray.sln `
+  --project StandardDomain `
+  --msbuild $msbuild `
+  --vctargets $vc
+```
+
+### `source-files` JSON (`SolutionSourceFilesDto`)
+
+| Property | Meaning |
+|----------|---------|
+| `SolutionPath` | Normalized `.sln` path |
+| `SelectedProjectName` | `--project` when filtering to one project; otherwise `null` |
+| `SolutionConfiguration` / `SolutionPlatform` | Evaluation mapping |
+| `Projects` | Array of entries below |
+
+Each **`Projects[]`** entry (`ProjectSourceFilesEntryDto`):
+
+| Property | Meaning |
+|----------|---------|
+| `ProjectName` | Solution display name |
+| `ProjectPath` | Full path to `.csproj` or `.vcxproj` |
+| `ProjectType` | `CSharp` or `Cpp` |
+| `Configuration` / `Platform` | Evaluated for that project |
+| `SourceFilePaths` | Full physical paths of evaluated source inputs |
+
+**Find file owner:** search all `Projects[].SourceFilePaths` for your full path (case-insensitive); use that row’s `ProjectPath` / `ProjectName`.
+
+Example fragment:
+
+```json
+{
+  "SolutionPath": "C:\\...\\Stingray.sln",
+  "SelectedProjectName": "StandardDomain",
+  "Projects": [
+    {
+      "ProjectName": "StandardDomain",
+      "ProjectPath": "C:\\...\\StandardDomain.csproj",
+      "SourceFilePaths": [
+        "C:\\...\\ForecastingMbxStepInputWriter.cs"
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## Dependency closure: `--mode closure` (default)
+
+Used by **`build_solution_project.ps1`**. Requires **`--project`** (closure root). Returns **`SolutionGraphDto`** with **`Nodes`**, **`BuildOrder`**, **`ExcludedProjects`**, and **`SourceFilePaths`** on closure and excluded projects.
+
+```powershell
+.\MSBuildGraphHelper.exe `
+  --solution C:\path\Stingray.sln `
+  --project Engineering.Desktop `
+  --msbuild $msbuild `
+  --vctargets $vc
+```
+
+(`--mode closure` is optional because it is the default.)
 
 ## Prerequisites
 
@@ -61,108 +173,51 @@ $vcRoot = Join-Path $install 'MSBuild\Microsoft\VC'
 
 If graph evaluation fails with missing `Microsoft.Cpp.Default.props`, install the C++ workload or fix `--vctargets`. If evaluation runs from a directory that is not under a VS install, `VCTargetsPath` is required even for C#-only solutions that share a `.sln` with C++ projects.
 
-## Command-line usage
+## Command-line reference
 
 ```text
 MSBuildGraphHelper.exe
-  --solution   <path-to.sln>     (required)
-  --project    <solution-name>   (required; display name from the .sln, not necessarily the .csproj file name)
+  [--mode closure|source-files]       (default: closure)
+  --solution   <path-to.sln>          (required)
+  [--project   <solution-display-name>] (required for closure; optional for source-files)
   --msbuild    <path-to-MSBuild.exe>  (required)
-  --vctargets  <path-to-VC-targets>   (required; folder containing Microsoft.Cpp.Default.props, e.g. ...\MSBuild\Microsoft\VC\v170\)
+  --vctargets  <path-to-VC-targets>   (required when solution contains C++)
   [--configuration Debug|Release]     (default: Debug)
   [--platform x64]                    (default: x64)
-  [--output <path-to.json>]           (optional; UTF-8 file. If omitted, JSON is written to stdout)
+  [--output <path-to.json>]           (optional; UTF-8 file, else stdout)
 ```
 
 **Exit codes:** `0` success, `1` failure (message on stderr).
 
-### Example
-
-```powershell
-$sln = 'C:\path\to\MySolution.sln'
-$msbuild = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\amd64\MSBuild.exe'
-$vc = 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\'
-
-.\bin\publish-aot\win-x64\MSBuildGraphHelper.exe `
-  --solution $sln `
-  --project MyApp `
-  --configuration Debug `
-  --platform x64 `
-  --msbuild $msbuild `
-  --vctargets $vc `
-  --output C:\temp\myapp-graph.json
-```
-
-Pipe stdout to a file when `--output` is omitted:
-
-```powershell
-.\MSBuildGraphHelper.exe --solution $sln --project MyApp --msbuild $msbuild --vctargets $vc > graph.json
-```
-
 `--vctargets` should be passed **without a trailing backslash** on the command line when using shells that mishandle escaped quotes (the helper normalizes the path internally).
 
-## Input (what you pass in)
+Only **`.csproj`** and **`.vcxproj`** projects in the solution are included. Other project types are omitted.
 
-| Input | Meaning |
-|-------|---------|
-| **Solution path** | Full path to a `.sln` file. |
-| **Project name** | Exact **solution project display name** (as in Solution Explorer / `.sln` `Project(...)` entries). Must be unique in the solution. |
-| **Configuration / platform** | Solution configuration used to evaluate the graph (e.g. `Debug`, `x64`). Per-project `Configuration` and `Platform` on each node come from evaluated MSBuild properties (e.g. C# `Any CPU` mappings). |
-| **MSBuild.exe** | Visual Studio’s MSBuild. Used to register an MSBuild instance via **Microsoft.Build.Locator**. |
-| **VCTargetsPath** | MSVC targets directory for C++ evaluation (sets `VCTargetsPath` in global properties and the process environment during graph construction). |
+## JSON reference
 
-Only **`.csproj`** and **`.vcxproj`** projects in the solution are included in the graph. Other project types are ignored for nodes.
-
-## Output (JSON document)
-
-With **`--output`**, writes one UTF-8 JSON file. Without it, the same JSON is printed to **stdout** (stderr is used for errors only).
-
-Root object shape (`SolutionGraphDto`):
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `SolutionPath` | string | Normalized path to the `.sln`. |
-| `SelectedProjectName` | string | The `--project` value (solution display name). |
-| `RootNodeId` | string | Id of the selected project’s node in the closure. |
-| `SolutionConfiguration` | string | Requested solution configuration. |
-| `SolutionPlatform` | string | Requested solution platform. |
-| `Nodes` | array | Projects in the **dependency closure**, sorted in build order. |
-| `BuildOrder` | array of string | Same nodes as `Nodes`, listed by `Id` in topological build order (root project is last). |
-| `ExcludedProjects` | array | Other `.csproj`/`.vcxproj` in the solution **not** in the closure. |
-
-Each **node** (`GraphNodeDto`):
-
-| Property | Description |
-|----------|-------------|
-| `Id` | Stable key: project path + configuration + platform. |
-| `ProjectName` | File name without extension (e.g. `MyApp.Library`). |
-| `ProjectPath` | Full path to the project file. |
-| `ProjectType` | `Cpp` or `CSharp`. |
-| `Configuration` / `Platform` | Evaluated for that node. |
-| `Dependencies` | List of `Id` values for prerequisite projects within the closure. |
-| `BuildEnabled` | Whether the project is marked build-enabled for the solution configuration. |
-| `TopologicalIndex` | `0`-based index in the computed build order. |
-
-Each **excluded** entry (`ExcludedProjectDto`):
-
-| Property | Description |
-|----------|-------------|
-| `ProjectName` / `ProjectPath` | Project identity. |
-| `Reason` | Currently `OutsideSelectedDependencyClosure` for projects not needed to build the selected target. |
+| Root property | Description |
+|---------------|-------------|
+| `SolutionPath` | Normalized `.sln` path |
+| `SelectedProjectName` | `--project` value |
+| `RootNodeId` | Graph id of the selected project |
+| `SolutionConfiguration` / `SolutionPlatform` | Requested solution mapping |
+| `Nodes` | Closure projects: **`ProjectPath`**, **`SourceFilePaths`**, dependencies, build metadata |
+| `BuildOrder` | `Nodes` ids in compile order (selected project last) |
+| `ExcludedProjects` | Other solution projects: **`ProjectPath`**, **`SourceFilePaths`**, `Reason` |
 
 ### How the graph is built
 
-1. Parse the solution and locate the selected project by **display name**.
-2. Construct `ProjectGraph` with global properties (`Configuration`, `Platform`, `VCTargetsPath`).
-3. Take the **prerequisite closure** of the selected project using `ProjectReference` edges.
-4. Merge **solution `ProjectDependencies`** (legacy `.sln` dependency sections) into node dependencies.
-5. **Topological sort** the closure; fail on cycles or if the selected project is not last in order.
+1. Parse the solution; resolve **`--project`** by solution **display name**.
+2. Construct **`ProjectGraph`** (`Configuration`, `Platform`, `VCTargetsPath`, `SolutionDir`).
+3. Collect **`SourceFilePaths`** from each evaluated **`ProjectInstance`** (MSBuild item API).
+4. Compute the **prerequisite closure** of the selected project (`ProjectReference` + `.sln` `ProjectDependencies`).
+5. **Topological sort**; attach file lists to closure **`Nodes`** and to **`ExcludedProjects`**.
 
-Custom MSBuild targets or references that do not appear as project references or solution dependencies may be missing from the graph.
+Custom targets or references not visible as project references or solution dependencies may be missing from the graph or file lists.
 
 ### Using the JSON in a build script
 
-Walk `BuildOrder` (or `Nodes` by `TopologicalIndex`) and invoke MSBuild on each `ProjectPath` in sequence. When building individual projects rather than the whole solution, set `/p:BuildProjectReferences=false` so MSBuild does not rebuild the graph ahead of your schedule, and pass `/p:SolutionDir=<directory of the .sln>\` if projects rely on solution-relative paths.
+Walk **`BuildOrder`** and invoke MSBuild on each node’s **`ProjectPath`**. Use **`/p:BuildProjectReferences=false`** and **`/p:SolutionDir=<directory of the .sln>\`** when building projects individually. Match changed files using **`SourceFilePaths`** on **`Nodes`** and **`ExcludedProjects`**.
 
 ## Troubleshooting
 
@@ -181,6 +236,9 @@ Walk `BuildOrder` (or `Nodes` by `TopologicalIndex`) and invoke MSBuild on each 
 |------|------|
 | `Program.cs` | CLI parsing, JSON serialization |
 | `MsBuildHost.cs` | MSBuild.Locator registration |
-| `GraphExtractor.cs` | ProjectGraph, closure, sort, exclusions |
+| `GraphExtractor.cs` | `--mode closure`: ProjectGraph, closure, sort, exclusions |
+| `SolutionSourceFileCatalog.cs` | `--mode source-files`: solution / project file lists |
+| `HelperRunner.cs` / `CliParser.cs` | Mode dispatch and CLI parsing |
 | `Models.cs` | DTO types for JSON |
-| `build_msbuild_graph_helper_aot.ps1` | Publish script (`-Managed` vs Native AOT) |
+| `ProjectEvaluatedSourceFiles.cs` | Evaluated `Compile` / `ClCompile` / `ClInclude` → full paths |
+| `build_msbuild_graph_helper_aot.ps1` | Publish framework-dependent single-file exe |

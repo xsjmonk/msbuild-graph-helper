@@ -189,16 +189,44 @@ public static class GraphExtractor
         // solution ProjectDependencies, so relative order may legitimately differ.
         WarnIfBuildOrderViolatesMsBuildReferenceOrder(buildOrder, graph, dtoByNode, closureNodeIds);
 
+        foreach (var dto in sorted)
+        {
+            if (!nodeById.TryGetValue(dto.Id, out var graphNode))
+            {
+                throw new InvalidOperationException($"Internal error: graph node not found for id '{dto.Id}' while collecting source files.");
+            }
+
+            dto.SourceFilePaths = ProjectEvaluatedSourceFiles.Collect(graphNode, dto.ProjectType);
+        }
+
+        var graphNodeByProjectPath = graph.ProjectNodes
+            .Where(n => SupportedExtensions.Contains(Path.GetExtension(n.ProjectInstance.FullPath)))
+            .GroupBy(n => Path.GetFullPath(n.ProjectInstance.FullPath), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
         var excluded = solutionProjects
             .Where(p => !string.Equals(Path.GetFullPath(p.AbsolutePath), selectedPath, StringComparison.OrdinalIgnoreCase))
             .Select(p => Path.GetFullPath(p.AbsolutePath))
             .Where(path => SupportedExtensions.Contains(Path.GetExtension(path)))
             .Where(path => !closureDtos.Any(n => string.Equals(n.ProjectPath, path, StringComparison.OrdinalIgnoreCase)))
-            .Select(path => new ExcludedProjectDto
+            .Select(path =>
             {
-                ProjectName = Path.GetFileNameWithoutExtension(path),
-                ProjectPath = path,
-                Reason = "OutsideSelectedDependencyClosure"
+                var projectType = Path.GetExtension(path).Equals(".vcxproj", StringComparison.OrdinalIgnoreCase)
+                    ? "Cpp"
+                    : "CSharp";
+                var sourceFilePaths = new List<string>();
+                if (graphNodeByProjectPath.TryGetValue(path, out var excludedGraphNode))
+                {
+                    sourceFilePaths = ProjectEvaluatedSourceFiles.Collect(excludedGraphNode, projectType);
+                }
+
+                return new ExcludedProjectDto
+                {
+                    ProjectName = Path.GetFileNameWithoutExtension(path),
+                    ProjectPath = path,
+                    Reason = "OutsideSelectedDependencyClosure",
+                    SourceFilePaths = sourceFilePaths
+                };
             })
             .OrderBy(e => e.ProjectName, StringComparer.OrdinalIgnoreCase)
             .ToList();

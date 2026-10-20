@@ -74,6 +74,13 @@ public sealed class BackwardCompatibilityRegressionTests
         graph.ExcludedProjects.Select(e => e.ProjectName).Should().Contain("ProjectX");
         var projectD = graph.Nodes.Single(n => n.ProjectName == "ProjectD");
         DependencyNames(graph, projectD).Should().BeEquivalentTo(["ProjectC"]);
+
+        var projectA = graph.Nodes.Single(n => n.ProjectName == "ProjectA");
+        projectA.SourceFilePaths.Should().NotBeNullOrEmpty();
+        projectA.SourceFilePaths.Should().Contain(p =>
+            p.EndsWith("ProjectA\\A1.cs", StringComparison.OrdinalIgnoreCase));
+        projectA.SourceFilePaths.Should().NotContain(p =>
+            p.EndsWith("Excluded\\Skip.cs", StringComparison.OrdinalIgnoreCase));
     }
 
     private static List<string> NameOrder(SolutionGraphDto graph) =>
