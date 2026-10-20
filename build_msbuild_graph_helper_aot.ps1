@@ -4,26 +4,22 @@
     Publish MSBuildGraphHelper to bin\publish-aot\<RID>\ (build only; no deploy copy).
 
 .DESCRIPTION
-    By default publishes Native AOT (PublishAot) for win-x64 into:
+    Publishes a framework-dependent, single-file managed executable for win-x64 into:
       .\bin\publish-aot\win-x64\MSBuildGraphHelper.exe
+
+    Requires a matching .NET runtime on the machine (project targets net8.0; .NET 8+ or .NET 10 is fine).
 
     This script does not copy the executable to the repo pipesim folder. Use
     build_solution_project.ps1 (Ensure-GraphHelperExecutable) or copy manually.
 
-    Note: Native AOT is incompatible with Microsoft.Build.Locator / ProjectGraph at
-    runtime (MarshalDirectiveException). For a runnable graph helper, pass -Managed.
-
-.PARAMETER Managed
-    Publish a self-contained single-file managed build instead of Native AOT.
+    Native AOT is not used (ProjectGraph + MSBuild.Locator need a managed host).
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Release', 'Debug')]
     [string]$Configuration = 'Release',
 
-    [string]$RuntimeIdentifier = 'win-x64',
-
-    [switch]$Managed
+    [string]$RuntimeIdentifier = 'win-x64'
 )
 
 Set-StrictMode -Version Latest
@@ -38,25 +34,13 @@ if (-not (Test-Path -LiteralPath $projectFile)) {
     exit 1
 }
 
-if ($Managed) {
-    Write-Host "Publishing managed self-contained single-file ($Configuration | $RuntimeIdentifier)..."
-    & dotnet publish $projectFile `
-        -c $Configuration `
-        -r $RuntimeIdentifier `
-        -o $publishDir `
-        -p:SelfContained=true `
-        -p:PublishSingleFile=true `
-        -p:IncludeNativeLibrariesForSelfExtract=true
-}
-else {
-    Write-Host "Publishing Native AOT ($Configuration | $RuntimeIdentifier)..."
-    & dotnet publish $projectFile `
-        -c $Configuration `
-        -r $RuntimeIdentifier `
-        -o $publishDir `
-        -p:PublishAot=true `
-        -p:SelfContained=true
-}
+Write-Host "Publishing framework-dependent single-file ($Configuration | $RuntimeIdentifier)..."
+& dotnet publish $projectFile `
+    -c $Configuration `
+    -r $RuntimeIdentifier `
+    -o $publishDir `
+    -p:SelfContained=false `
+    -p:PublishSingleFile=true
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "dotnet publish failed with exit code $LASTEXITCODE."

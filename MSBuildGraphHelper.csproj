@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <InternalsVisibleTo Include="MSBuildGraphHelper.Tests" />
+  </ItemGroup>
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
@@ -7,6 +10,10 @@
     <RootNamespace>MSBuildGraphHelper</RootNamespace>
     <AssemblyName>MSBuildGraphHelper</AssemblyName>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="MSBuildGraphHelper.Tests\**" />
+    <None Remove="MSBuildGraphHelper.Tests\**" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Build" Version="17.11.48">
       <ExcludeAssets>runtime</ExcludeAssets>

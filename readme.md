@@ -15,17 +15,13 @@ Typical uses: drive custom build scripts, inspect what must compile before a tar
 From this folder:
 
 ```powershell
-# Runnable helper (required for ProjectGraph + MSBuild.Locator)
-.\build_msbuild_graph_helper_aot.ps1 -Managed
+.\build_msbuild_graph_helper_aot.ps1
 
 # Output:
 #   .\bin\publish-aot\win-x64\MSBuildGraphHelper.exe
 ```
 
-| Publish mode | Command | Use |
-|--------------|---------|-----|
-| **Managed** (recommended) | `build_msbuild_graph_helper_aot.ps1 -Managed` | Self-contained single-file exe; works at runtime. |
-| **Native AOT** (default script flag) | `build_msbuild_graph_helper_aot.ps1` | Smaller binary; **not supported** for this tool (`MarshalDirectiveException` / stack issues with dynamic MSBuild load). |
+Publishes a **framework-dependent**, **single-file** managed exe (not self-contained). Requires **.NET 8+** runtime on the machine (e.g. .NET 10). Native AOT is not supported for ProjectGraph + MSBuild.Locator.
 
 Optional parameters on the build script: `-Configuration Release|Debug`, `-RuntimeIdentifier win-x64`.
 
@@ -176,7 +172,7 @@ Walk `BuildOrder` (or `Nodes` by `TopologicalIndex`) and invoke MSBuild on each 
 | `No solution project named '…'` | `--project` must match the **solution display name**, not the `.csproj` file name. |
 | `Ambiguous project name` | Two solution entries share the same display name; rename in the `.sln` or pick a unique solution. |
 | `Failed to construct ProjectGraph` | Invalid solution mapping for `--configuration` / `--platform`, or missing SDK imports. |
-| `MarshalDirectiveException` / stack buffer overrun | Published with **Native AOT**; rebuild with **`-Managed`**. |
+| `MarshalDirectiveException` / stack buffer overrun | Old **Native AOT** publish; rebuild with **`build_msbuild_graph_helper_aot.ps1`** (framework-dependent single-file). |
 | `MSBuildLocator found no Visual Studio MSBuild instances` | `--msbuild` must point to a Visual Studio MSBuild, not a standalone copy without a registered instance. |
 
 ## Source layout

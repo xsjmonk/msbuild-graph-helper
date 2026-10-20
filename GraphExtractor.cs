@@ -58,7 +58,9 @@ public static class GraphExtractor
                 $"Project '{projectName}' has unsupported type '{Path.GetExtension(selectedPath)}'. Supported: .vcxproj, .csproj");
         }
 
-        vcTargetsPath = NormalizeVcTargetsPath(vcTargetsPath);
+        vcTargetsPath = MsBuildVcTargets.Normalize(
+            vcTargetsPath,
+            "VCTargetsPath is required for solutions that contain C++ (.vcxproj) projects.");
         Environment.SetEnvironmentVariable("VCTargetsPath", vcTargetsPath);
 
         var globalProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -67,6 +69,7 @@ public static class GraphExtractor
             ["Platform"] = solutionPlatform,
             ["VCTargetsPath"] = vcTargetsPath
         };
+        MsBuildSolutionDir.ApplyToGlobalProperties(globalProperties, solutionPath);
 
         ProjectGraph graph;
         try
@@ -548,22 +551,4 @@ public static class GraphExtractor
         return $"{Path.GetFullPath(path)}|{configuration}|{platform}".ToUpperInvariant();
     }
 
-    private static string NormalizeVcTargetsPath(string vcTargetsPath)
-    {
-        if (string.IsNullOrWhiteSpace(vcTargetsPath))
-        {
-            throw new InvalidOperationException("VCTargetsPath is required for solutions that contain C++ (.vcxproj) projects.");
-        }
-
-        var normalized = Path.GetFullPath(vcTargetsPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        normalized += Path.DirectorySeparatorChar;
-
-        var defaultProps = Path.Combine(normalized, "Microsoft.Cpp.Default.props");
-        if (!File.Exists(defaultProps))
-        {
-            throw new InvalidOperationException($"VCTargetsPath is invalid (missing Microsoft.Cpp.Default.props): {normalized}");
-        }
-
-        return normalized;
-    }
 }
